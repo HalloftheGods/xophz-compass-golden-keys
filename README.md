@@ -25,7 +25,7 @@ Discover what golden keywords help unlock otherwise missed opportunities.
 1. Ensure **Xophz COMPASS** is installed and active.
 2. Upload `xophz-compass-golden-keys` to `/wp-content/plugins/`.
 3. Activate through the Plugins menu.
-4. Access via the COMPASS dashboard → **Golden Keywords**.
+4. Access via the My Compass dashboard → **Golden Keywords**.
 
 ## PHP Class Map
 
