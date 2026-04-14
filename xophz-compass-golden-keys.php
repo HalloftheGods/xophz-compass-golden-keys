@@ -17,13 +17,14 @@
  * Plugin Name:       Xophz Golden Keywords
  * Plugin URI:        http://www.mycompassconsulting.com/
  * Description:       Discover what golden keywords help unlock/open otherwise missed opportunities.
- * Version:           26.4.13.483
+ * Version:           26.4.14.1311
  * Author:            Hall of the Gods, Inc.
  * Author URI:        http://www.midnightnerd.com/
  * License:           GPL-2.0+
  * License URI:       http://www.gnu.org/licenses/gpl-2.0.txt
  * Text Domain:       xophz-compass-golden-keys
  * Domain Path:       /languages
+ * Update URI:        https://github.com/HalloftheGods/xophz-compass-golden-keys
  */
 
 // If this file is called directly, abort.
@@ -36,7 +37,7 @@ if ( ! defined( 'WPINC' ) ) {
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-define( 'XOPHZ_COMPASS_GOLDEN_KEYS_VERSION', '26.4.13.483' );
+define( 'XOPHZ_COMPASS_GOLDEN_KEYS_VERSION', '26.4.14.1311' );
 
 /**
  * The code that runs during plugin activation.
