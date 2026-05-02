@@ -14,6 +14,7 @@
  *
  * @wordpress-plugin
  * Category:          True North
+ * Group:             MA
  * Plugin Name:       Xophz Golden Keywords
  * Plugin URI:        https://github.com/HalloftheGods/xophz-compass-golden-keys
  * Description:       Discover what golden keywords help unlock/open otherwise missed opportunities.
