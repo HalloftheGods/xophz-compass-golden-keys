@@ -26,6 +26,89 @@ class Xophz_Compass_Golden_Keys_API {
             'callback' => array( $this, 'get_traffic_vectors' ),
             'permission_callback' => array( $this, 'get_items_permissions_check' ),
         ) );
+
+        register_rest_route( 'golden-keys/v1', '/license', array(
+            'methods'  => 'GET',
+            'callback' => array( $this, 'get_my_license' ),
+            'permission_callback' => 'is_user_logged_in',
+        ) );
+
+        register_rest_route( 'golden-keys/v1', '/license/validate', array(
+            'methods'  => 'POST',
+            'callback' => array( $this, 'validate_license_key_route' ),
+            'permission_callback' => '__return_true',
+        ) );
+    }
+
+    public static function generate_license_key( $user_id, $tier = 'pro_chef' ) {
+        $prefix = ( $tier === 'enterprise_pantry' || $tier === 'commercial' ) ? 'GOLDEN-BIZ' : 'GOLDEN-PRO';
+        $bytes  = bin2hex( random_bytes( 8 ) );
+        $parts  = str_split( strtoupper( $bytes ), 4 );
+        $key    = $prefix . '-' . implode( '-', $parts );
+
+        $license_data = array(
+            'license_key' => $key,
+            'user_id'     => $user_id,
+            'tier'        => $tier,
+            'status'      => 'active',
+            'created_at'  => current_time( 'mysql' ),
+            'expires_at'  => date( 'Y-m-d H:i:s', strtotime( '+1 year' ) ),
+        );
+
+        update_user_meta( $user_id, 'xophz_golden_license', $license_data );
+        update_user_meta( $user_id, 'kitchensynk_user_type', $tier );
+
+        return $license_data;
+    }
+
+    public function get_my_license( $request ) {
+        $user_id = get_current_user_id();
+        $license = get_user_meta( $user_id, 'xophz_golden_license', true );
+        
+        if ( empty( $license ) || ! is_array( $license ) ) {
+            return new WP_REST_Response( array(
+                'has_license' => false,
+                'tier'        => 'starter',
+                'message'     => 'No active license key found for this user account.'
+            ), 200 );
+        }
+
+        return new WP_REST_Response( array(
+            'has_license' => true,
+            'license'     => $license
+        ), 200 );
+    }
+
+    public function validate_license_key_route( $request ) {
+        $params = $request->get_json_params();
+        $key    = sanitize_text_field( $params['license_key'] ?? '' );
+
+        if ( empty( $key ) ) {
+            return new WP_Error( 'missing_key', 'License key is required.', array( 'status' => 400 ) );
+        }
+
+        $users = get_users( array(
+            'meta_key'   => 'xophz_golden_license',
+            'number'     => 1,
+        ) );
+
+        foreach ( $users as $u ) {
+            $lic = get_user_meta( $u->ID, 'xophz_golden_license', true );
+            if ( is_array( $lic ) && isset( $lic['license_key'] ) && $lic['license_key'] === $key ) {
+                return new WP_REST_Response( array(
+                    'valid'     => true,
+                    'status'    => $lic['status'],
+                    'tier'      => $lic['tier'],
+                    'expires_at'=> $lic['expires_at'],
+                    'user_email'=> $u->user_email
+                ), 200 );
+            }
+        }
+
+        return new WP_REST_Response( array(
+            'valid'   => false,
+            'message' => 'Invalid or expired Golden License Key.'
+        ), 200 );
     }
 
     public function get_items_permissions_check( $request ) {
