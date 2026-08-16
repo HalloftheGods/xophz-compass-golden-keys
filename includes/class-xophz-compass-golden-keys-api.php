@@ -27,6 +27,25 @@ class Xophz_Compass_Golden_Keys_API {
             'permission_callback' => array( $this, 'get_items_permissions_check' ),
         ) );
 
+        register_rest_route( 'golden-keys/v1', '/focus-keywords', array(
+            array(
+                'methods'             => 'GET',
+                'callback'            => array( $this, 'get_focus_keywords' ),
+                'permission_callback' => array( $this, 'get_items_permissions_check' ),
+            ),
+            array(
+                'methods'             => 'POST',
+                'callback'            => array( $this, 'update_focus_keywords' ),
+                'permission_callback' => array( $this, 'get_items_permissions_check' ),
+            ),
+        ) );
+
+        register_rest_route( 'golden-keys/v1', '/opportunities', array(
+            'methods'  => 'GET',
+            'callback' => array( $this, 'get_keyword_opportunities' ),
+            'permission_callback' => array( $this, 'get_items_permissions_check' ),
+        ) );
+
         register_rest_route( 'golden-keys/v1', '/license', array(
             'methods'  => 'GET',
             'callback' => array( $this, 'get_my_license' ),
@@ -179,5 +198,278 @@ class Xophz_Compass_Golden_Keys_API {
         );
         
         return new WP_REST_Response( $response, 200 );
+    }
+
+    public function get_focus_keywords( $request ) {
+        $post_type   = $request->get_param( 'post_type' );
+        $post_status = $request->get_param( 'status' );
+        $search      = $request->get_param( 'search' );
+        $per_page    = (int) ( $request->get_param( 'per_page' ) ?: 50 );
+        $page        = (int) ( $request->get_param( 'page' ) ?: 1 );
+
+        if ( empty( $post_type ) || 'all' === $post_type ) {
+            $post_types = get_post_types( array( 'public' => true ), 'names' );
+            unset( $post_types['attachment'] );
+            $post_types = array_values( $post_types );
+        } else {
+            $post_types = array( sanitize_key( $post_type ) );
+        }
+
+        $args = array(
+            'post_type'      => $post_types,
+            'post_status'    => ! empty( $post_status ) && 'all' !== $post_status ? sanitize_key( $post_status ) : array( 'publish', 'draft', 'private', 'pending', 'future' ),
+            'posts_per_page' => $per_page,
+            'paged'          => $page,
+            'orderby'        => 'modified',
+            'order'          => 'DESC',
+        );
+
+        if ( ! empty( $search ) ) {
+            $args['s'] = sanitize_text_field( $search );
+        }
+
+        $query = new WP_Query( $args );
+        $items = array();
+
+        if ( $query->have_posts() ) {
+            foreach ( $query->posts as $p ) {
+                $p_id = $p->ID;
+
+                // SmartCrawl / WDS / RankMath / Yoast focus keywords
+                $wds_keywords = get_post_meta( $p_id, '_wds_focus-keywords', true );
+                if ( empty( $wds_keywords ) ) {
+                    $wds_keywords = get_post_meta( $p_id, '_wds_focus_keyword', true );
+                }
+                if ( empty( $wds_keywords ) ) {
+                    $wds_keywords = get_post_meta( $p_id, 'rank_math_focus_keyword', true );
+                }
+                if ( empty( $wds_keywords ) ) {
+                    $wds_keywords = get_post_meta( $p_id, '_yoast_wpseo_focuskw', true );
+                }
+
+                $primary_kw = '';
+                $secondary_kws = array();
+                if ( is_array( $wds_keywords ) ) {
+                    $primary_kw    = $wds_keywords[0] ?? '';
+                    $secondary_kws = array_slice( $wds_keywords, 1 );
+                } elseif ( is_string( $wds_keywords ) ) {
+                    $parts         = array_map( 'trim', explode( ',', $wds_keywords ) );
+                    $primary_kw    = $parts[0] ?? '';
+                    $secondary_kws = array_values( array_filter( array_slice( $parts, 1 ) ) );
+                }
+
+                // SEO & Readability score
+                $seo_score = get_post_meta( $p_id, '_smartcrawl_seo_score', true );
+                if ( '' === $seo_score || false === $seo_score ) {
+                    $seo_score = get_post_meta( $p_id, '_wds_seo_score', true );
+                }
+                if ( '' === $seo_score || false === $seo_score ) {
+                    $seo_score = get_post_meta( $p_id, '_wds_score', true );
+                }
+                if ( '' === $seo_score || false === $seo_score ) {
+                    $seo_score = get_post_meta( $p_id, 'rank_math_seo_score', true );
+                }
+
+                $readability_score = get_post_meta( $p_id, '_smartcrawl_readability_score', true );
+                if ( '' === $readability_score || false === $readability_score ) {
+                    $readability_score = get_post_meta( $p_id, '_wds_readability_score', true );
+                }
+
+                // Content metrics
+                $plain_content = wp_strip_all_tags( $p->post_content );
+                $word_count    = ! empty( trim( $plain_content ) ) ? count( preg_split( '/\s+/', trim( $plain_content ) ) ) : 0;
+
+                // Keyword occurrences in content & title
+                $title_has_kw  = false;
+                $content_count = 0;
+                if ( ! empty( $primary_kw ) ) {
+                    $kw_clean      = strtolower( $primary_kw );
+                    $title_has_kw  = ( false !== stripos( $p->post_title, $primary_kw ) );
+                    $content_count = substr_count( strtolower( $plain_content ), $kw_clean );
+                }
+
+                $pt_obj     = get_post_type_object( $p->post_type );
+                $type_label = $pt_obj ? $pt_obj->labels->singular_name : ucfirst( $p->post_type );
+
+                $items[] = array(
+                    'id'                 => $p_id,
+                    'title'              => html_entity_decode( $p->post_title ?: '(No title)' ),
+                    'post_type'          => $p->post_type,
+                    'post_type_label'    => $type_label,
+                    'status'             => $p->post_status,
+                    'permalink'          => get_permalink( $p_id ),
+                    'edit_url'           => get_edit_post_link( $p_id, 'raw' ),
+                    'focus_keyword'      => $primary_kw,
+                    'secondary_keywords' => $secondary_kws,
+                    'seo_score'          => ( '' !== $seo_score && false !== $seo_score ) ? (int) $seo_score : null,
+                    'readability_score'  => ( '' !== $readability_score && false !== $readability_score ) ? (int) $readability_score : null,
+                    'word_count'         => $word_count,
+                    'in_title'           => $title_has_kw,
+                    'occurrences'        => $content_count,
+                    'modified_date'      => get_the_modified_date( 'Y-m-d H:i', $p ),
+                );
+            }
+        }
+
+        // Available post types for filtering
+        $all_types = array();
+        $pub_types = get_post_types( array( 'public' => true ), 'objects' );
+        unset( $pub_types['attachment'] );
+        foreach ( $pub_types as $slug => $obj ) {
+            $count_obj = wp_count_posts( $slug );
+            $pub_count = isset( $count_obj->publish ) ? (int) $count_obj->publish : 0;
+            $drf_count = isset( $count_obj->draft ) ? (int) $count_obj->draft : 0;
+            $all_types[] = array(
+                'slug'  => $slug,
+                'name'  => $obj->labels->name ?: ucfirst( $slug ),
+                'count' => $pub_count + $drf_count,
+            );
+        }
+
+        return new WP_REST_Response( array(
+            'items'        => $items,
+            'total'        => (int) $query->found_posts,
+            'total_pages'  => (int) $query->max_num_pages,
+            'current_page' => $page,
+            'post_types'   => $all_types,
+        ), 200 );
+    }
+
+    public function update_focus_keywords( $request ) {
+        $params = $request->get_json_params();
+        
+        $items_to_update = array();
+        if ( isset( $params['items'] ) && is_array( $params['items'] ) ) {
+            $items_to_update = $params['items'];
+        } elseif ( isset( $params['post_id'] ) ) {
+            $items_to_update[] = array(
+                'post_id'            => (int) $params['post_id'],
+                'focus_keyword'      => $params['focus_keyword'] ?? '',
+                'secondary_keywords' => $params['secondary_keywords'] ?? array(),
+            );
+        }
+
+        if ( empty( $items_to_update ) ) {
+            return new WP_Error( 'missing_data', 'No post or keyword updates provided.', array( 'status' => 400 ) );
+        }
+
+        $updated_count = 0;
+        foreach ( $items_to_update as $item ) {
+            $p_id = (int) ( $item['post_id'] ?? 0 );
+            if ( ! $p_id || ! get_post( $p_id ) ) {
+                continue;
+            }
+
+            $kw        = sanitize_text_field( $item['focus_keyword'] ?? '' );
+            $secondary = array_map( 'sanitize_text_field', (array) ( $item['secondary_keywords'] ?? array() ) );
+            $all_kws   = array_values( array_filter( array_merge( array( $kw ), $secondary ) ) );
+
+            // SmartCrawl / WDS meta keys
+            update_post_meta( $p_id, '_wds_focus-keywords', ! empty( $all_kws ) ? implode( ',', $all_kws ) : '' );
+            update_post_meta( $p_id, '_wds_focus_keyword', $kw );
+
+            // Secondary plugin meta compatibility
+            update_post_meta( $p_id, 'rank_math_focus_keyword', implode( ', ', $all_kws ) );
+            update_post_meta( $p_id, '_yoast_wpseo_focuskw', $kw );
+
+            // Trigger SmartCrawl recalculation if installed
+            if ( class_exists( '\SmartCrawl\Controllers\Analysis' ) ) {
+                try {
+                    $analyzer = method_exists( '\SmartCrawl\Controllers\Analysis', 'get' ) ? \SmartCrawl\Controllers\Analysis::get() : new \SmartCrawl\Controllers\Analysis();
+                    if ( method_exists( $analyzer, 'maybe_analyze_post' ) ) {
+                        $analyzer->maybe_analyze_post( $p_id );
+                    }
+                } catch ( Exception $e ) {
+                    // Ignore analyzer exceptions
+                }
+            }
+
+            $updated_count++;
+        }
+
+        return new WP_REST_Response( array(
+            'success' => true,
+            'updated' => $updated_count,
+            'message' => "Successfully updated focus keywords for {$updated_count} post(s).",
+        ), 200 );
+    }
+
+    public function get_keyword_opportunities( $request ) {
+        global $wpdb;
+        $meta_kws = $wpdb->get_col( "
+            SELECT DISTINCT meta_value 
+            FROM {$wpdb->postmeta} 
+            WHERE meta_key IN ('_wds_focus-keywords', '_wds_focus_keyword', 'rank_math_focus_keyword', '_yoast_wpseo_focuskw')
+              AND meta_value != ''
+        " );
+
+        $assigned_set = array();
+        if ( ! empty( $meta_kws ) ) {
+            foreach ( $meta_kws as $raw ) {
+                $parts = explode( ',', $raw );
+                foreach ( $parts as $p ) {
+                    $trimmed = strtolower( trim( $p ) );
+                    if ( ! empty( $trimmed ) ) {
+                        $assigned_set[ $trimmed ] = true;
+                    }
+                }
+            }
+        }
+
+        $lexicon_response = $this->get_content_lexicon( $request );
+        $lexicon_data     = $lexicon_response->get_data();
+
+        $untapped_opportunities = array();
+        if ( is_array( $lexicon_data ) ) {
+            foreach ( $lexicon_data as $entry ) {
+                $term = strtolower( $entry['name'] );
+                if ( ! isset( $assigned_set[ $term ] ) ) {
+                    $untapped_opportunities[] = array(
+                        'keyword'    => $term,
+                        'frequency'  => (int) ( $entry['value'] / 10 ),
+                        'importance' => $entry['value'] > 100 ? 'High' : ( $entry['value'] > 40 ? 'Medium' : 'Growth' ),
+                        'status'     => 'Unassigned',
+                    );
+                }
+            }
+        }
+
+        $missing_posts_query = new WP_Query( array(
+            'post_type'      => array( 'post', 'page' ),
+            'post_status'    => 'publish',
+            'posts_per_page' => 20,
+            'meta_query'     => array(
+                'relation' => 'OR',
+                array(
+                    'key'     => '_wds_focus_keyword',
+                    'compare' => 'NOT EXISTS',
+                ),
+                array(
+                    'key'     => '_wds_focus_keyword',
+                    'value'   => '',
+                    'compare' => '=',
+                ),
+            ),
+        ) );
+
+        $missing_posts = array();
+        if ( $missing_posts_query->have_posts() ) {
+            foreach ( $missing_posts_query->posts as $p ) {
+                $missing_posts[] = array(
+                    'id'        => $p->ID,
+                    'title'     => html_entity_decode( $p->post_title ?: '(No title)' ),
+                    'post_type' => $p->post_type,
+                    'permalink' => get_permalink( $p->ID ),
+                    'date'      => get_the_date( 'Y-m-d', $p ),
+                );
+            }
+        }
+
+        return new WP_REST_Response( array(
+            'untapped_keywords'   => array_slice( $untapped_opportunities, 0, 20 ),
+            'missing_posts_count' => (int) $missing_posts_query->found_posts,
+            'missing_posts'       => $missing_posts,
+            'total_assigned'      => count( $assigned_set ),
+        ), 200 );
     }
 }
