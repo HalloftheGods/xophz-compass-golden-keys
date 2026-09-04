@@ -54,8 +54,7 @@ function activate_xophz_compass_golden_keys() {
  * This action is documented in includes/class-xophz-compass-golden-keys-deactivator.php
  */
 function deactivate_xophz_compass_golden_keys() {
-	require_once plugin_dir_path( __FILE__ ) . 'includes/class-xophz-compass-golden-keys-deactivator.php';
-	Xophz_Compass_Golden_Keys_Deactivator::deactivate();
+	Xophz_Compass_Golden_Keys::deactivate();
 }
 
 register_activation_hook( __FILE__, 'activate_xophz_compass_golden_keys' );
